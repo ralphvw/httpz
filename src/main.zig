@@ -4,7 +4,7 @@ const httpz = @import("httpz");
 const rediz = @import("rediz");
 
 const Ctx = struct { db: *pg.Pool, redis: rediz.RedisClient };
-const User = struct { first_name: []const u8, last_name: []const u8, email: []const u8 };
+const User = struct { id: i32, first_name: []const u8, last_name: []const u8, email: []const u8 };
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -35,10 +35,25 @@ pub fn main() !void {
     std.debug.print("Server listening on port: {d}\n", .{port});
 }
 
-fn getUser(ctx: *Ctx, _: *httpz.Request, res: *httpz.Response) !void {
-    const redisRes = try ctx.redis.get("somestation");
+fn getUser(ctx: *Ctx, req: *httpz.Request, res: *httpz.Response) !void {
+    const id = req.params.get("id");
+    if (id == null) {
+        res.status = 400;
+        res.body = "Invalid request";
+        return;
+    }
 
-    try res.json(.{ .data = redisRes orelse "" }, .{});
+    const result = try ctx.db.row("SELECT id, first_name, last_name, email FROM users WHERE id = $1", .{id});
+
+    if (result) |r| {
+        const user = try r.to(User, .{});
+
+        return try res.json(.{ .user = user }, .{});
+    }
+
+    res.status = 404;
+    res.body = "User not found";
+    return;
 }
 
 fn insertUser(ctx: *Ctx, req: *httpz.Request, res: *httpz.Response) !void {
